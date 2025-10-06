@@ -4,9 +4,11 @@ from mcp.types import Tool, TextContent
 from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.responses import Response
+from sse_starlette import EventSourceResponse
 import uvicorn
 import os
 import json
+import asyncio
 
 # Create MCP server
 server = Server("filesystem-mcp-server")
@@ -132,13 +134,22 @@ async def handle_call_tool(name: str, arguments: dict):
 
 # SSE endpoint handler
 async def handle_sse(request):
-    async with SseServerTransport("/messages") as transport:
-        await server.run(
-            transport.reader,
-            transport.writer,
-            server.create_initialization_options()
-        )
-    return Response()
+    """Handle SSE connection for MCP"""
+    transport = SseServerTransport("/messages")
+    
+    async def run_server():
+        async with transport:
+            await server.run(
+                transport.reader,
+                transport.writer,
+                server.create_initialization_options()
+            )
+    
+    # Start server in background
+    task = asyncio.create_task(run_server())
+    
+    # Return SSE response
+    return EventSourceResponse(transport)
 
 # Health check endpoint
 async def health(request):
@@ -150,8 +161,8 @@ async def health(request):
 # Create Starlette app
 app = Starlette(
     routes=[
-        Route("/sse", endpoint=handle_sse),
-        Route("/health", endpoint=health),
+        Route("/sse", endpoint=handle_sse, methods=["GET", "POST"]),
+        Route("/health", endpoint=health, methods=["GET"]),
     ]
 )
 
