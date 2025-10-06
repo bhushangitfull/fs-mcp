@@ -17,11 +17,12 @@ COPY . .
 ENV PYTHONUNBUFFERED=1
 
 # Expose port (Smithery will provide PORT env variable)
-EXPOSE 8000
+ENV PYTHONUNBUFFERED=1
+ENV PORT=${PORT:-8000}
 
 # Health check to ensure the server is running
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+  CMD python -c "import urllib.request; import os; urllib.request.urlopen(f'http://localhost:{os.getenv(\"PORT\", 8000)}/health')"
 
 # Run the MCP server
 CMD python server.py
