@@ -27,4 +27,3 @@ ENV PORT=${PORT:-8000}
 
 # Run the MCP server
 CMD ["uv", "run", "python", "main.py"]
-
