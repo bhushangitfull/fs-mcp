@@ -4,19 +4,20 @@ FROM python:3.11-slim
 # Set working directory in container
 WORKDIR /app
 
-# Copy requirements file first (for better caching)
-COPY requirements.txt .
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml .
 
-# Copy the rest of the application code
+RUN uv sync --frozen
+
+
+
+
 COPY src/ .
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
 
-# Expose port (Smithery will provide PORT env variable)
+
+
 ENV PYTHONUNBUFFERED=1
 ENV PORT=${PORT:-8000}
 
