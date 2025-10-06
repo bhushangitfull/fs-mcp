@@ -6,5 +6,11 @@ author: Sujal Mane
 # Specify Docker runtime
 runtime: docker
 
-# server will be accessible via HTTP/SSE
+# Server will be accessible via HTTP/SSE
 transport: sse
+
+# Required: Specify the start command
+startCommand:
+  command: python
+  args:
+    - server.py
