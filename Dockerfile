@@ -26,4 +26,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD python -c "import urllib.request; import os; urllib.request.urlopen(f'http://localhost:{os.getenv(\"PORT\", 8000)}/health')"
 
 # Run the MCP server
-CMD ["uv", "run", "python", "main.py"]
+CMD python src/main.py
+
