@@ -1,19 +1,18 @@
-#!/usr/bin/env python3
 import asyncio
 import os
 import json
+from contextlib import asynccontextmanager
 from mcp.server import Server
+from mcp.server.sse import SseServerTransport
 from mcp.types import Tool, TextContent
-import mcp.server.stdio
-import uvicorn
 from starlette.applications import Starlette
-from starlette.responses import Response
 from starlette.routing import Route
+import uvicorn
 
-# Initialize MCP server
-mcp = Server("filesystem-mcp-server")
+# Create MCP server instance
+mcp_server = Server("filesystem-mcp-server")
 
-@mcp.list_tools()
+@mcp_server.list_tools()
 async def list_tools():
     """List available filesystem tools"""
     return [
@@ -74,7 +73,7 @@ async def list_tools():
         )
     ]
 
-@mcp.call_tool()
+@mcp_server.call_tool()
 async def call_tool(name: str, arguments: dict):
     """Handle tool execution"""
     try:
@@ -105,109 +104,44 @@ async def call_tool(name: str, arguments: dict):
     except Exception as e:
         return [TextContent(type="text", text=f"Error: {str(e)}")]
 
+# Create the SSE transport - this handles both /sse and /messages endpoints
+sse = SseServerTransport("/messages")
+
 async def handle_sse(request):
-    """Handle SSE endpoint"""
-    from mcp.server.sse import SseServerTransport
-    from starlette.responses import StreamingResponse
-    
-    async with SseServerTransport("/messages") as transport:
-        # Create async generators for communication
-        async def read_stream():
-            while True:
-                message = await transport.reader.recv()
-                yield message
-        
-        async def write_stream(generator):
-            async for message in generator:
-                await transport.writer.send(message)
-        
-        # Run the MCP server
-        init_options = mcp.create_initialization_options()
-        
-        async def run_server():
-            await mcp.run(
-                transport.reader,
-                transport.writer,
-                init_options
-            )
-        
-        # Start server and return SSE stream
-        task = asyncio.create_task(run_server())
-        
-        async def event_generator():
-            try:
-                while not task.done():
-                    await asyncio.sleep(0.1)
-                    yield {"data": "heartbeat"}
-            except Exception as e:
-                print(f"Error in event generator: {e}")
-        
-        return StreamingResponse(
-            event_generator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "Access-Control-Allow-Origin": "*",
-            }
+    """Handle SSE connections"""
+    async with sse.connect_sse(
+        request.scope,
+        request.receive, 
+        request._send
+    ) as streams:
+        await mcp_server.run(
+            streams[0],
+            streams[1], 
+            mcp_server.create_initialization_options()
         )
 
 async def handle_messages(request):
-    """Handle messages POST endpoint"""
-    from mcp.server.sse import SseServerTransport
-    
-    try:
-        body = await request.json()
-        print(f"Received message: {body}")
-        
-        # Process the MCP message
-        # This is where the MCP protocol messages are handled
-        
-        return Response(
-            content=json.dumps({"status": "ok"}),
-            media_type="application/json",
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "POST, OPTIONS",
-                "Access-Control-Allow-Headers": "*",
-            }
-        )
-    except Exception as e:
-        print(f"Error handling message: {e}")
-        return Response(
-            content=json.dumps({"error": str(e)}),
-            status_code=500,
-            media_type="application/json"
-        )
-
-async def health_check(request):
-    """Health check endpoint"""
-    return Response(
-        content=json.dumps({"status": "healthy", "server": "filesystem-mcp-server"}),
-        media_type="application/json",
-        headers={"Access-Control-Allow-Origin": "*"}
+    """Handle message posts"""
+    await sse.handle_post_message(
+        request.scope,
+        request.receive,
+        request._send
     )
 
-async def handle_options(request):
-    """Handle CORS preflight"""
-    return Response(
-        status_code=200,
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-        }
-    )
+@asynccontextmanager
+async def lifespan(app):
+    """Application lifespan manager"""
+    print("🚀 Server starting up...")
+    yield
+    print("👋 Server shutting down...")
 
-# Create Starlette app
+# Create Starlette application
 app = Starlette(
     debug=True,
+    lifespan=lifespan,
     routes=[
-        Route("/sse", handle_sse, methods=["GET"]),
-        Route("/messages", handle_messages, methods=["POST"]),
-        Route("/messages", handle_options, methods=["OPTIONS"]),
-        Route("/sse", handle_options, methods=["OPTIONS"]),
-        Route("/health", health_check, methods=["GET"]),
+        Route("/sse", endpoint=handle_sse),
+        Route("/messages", endpoint=handle_messages, methods=["POST"]),
     ]
 )
 
@@ -215,9 +149,14 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     host = os.getenv("HOST", "0.0.0.0")
     
-    print(f"🚀 Starting MCP Filesystem Server")
-    print(f"📍 SSE endpoint: http://{host}:{port}/sse")
-    print(f"📬 Messages endpoint: http://{host}:{port}/messages")
-    print(f"💚 Health check: http://{host}:{port}/health")
+    print(f"🔧 MCP Filesystem Server")
+    print(f"📍 Host: {host}:{port}")
+    print(f"🔗 SSE: http://{host}:{port}/sse")
+    print(f"📬 Messages: http://{host}:{port}/messages")
     
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        log_level="info"
+    )
