@@ -134,22 +134,27 @@ async def handle_call_tool(name: str, arguments: dict):
 
 # SSE endpoint handler
 async def handle_sse(request):
-    """Handle SSE connection for MCP"""
     transport = SseServerTransport("/messages")
     
     async def run_server():
-        async with transport:
+        async with transport.connect_sse(
+            request.scope,
+            request.receive,
+            request._send
+        ) as streams:
             await server.run(
-                transport.reader,
-                transport.writer,
+                streams[0],
+                streams[1],
                 server.create_initialization_options()
             )
     
-    # Start server in background
-    task = asyncio.create_task(run_server())
-    
-    # Return SSE response
-    return EventSourceResponse(transport)
+    return EventSourceResponse(
+        run_server(),
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
 
 # Health check endpoint
 async def health(request):
@@ -161,8 +166,8 @@ async def health(request):
 # Create Starlette app
 app = Starlette(
     routes=[
-        Route("/sse", endpoint=handle_sse, methods=["GET", "POST"]),
-        Route("/health", endpoint=health, methods=["GET"]),
+        Route("/sse", endpoint=handle_sse),
+        Route("/health", endpoint=health),
     ]
 )
 
