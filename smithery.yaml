@@ -3,8 +3,8 @@ version: 1.0.0
 description: MCP server for file system operations
 author: Sujal Mane
 
-runtime: container
-transport: sse
+# Use Python runtime (not container)
+runtime: python
 
-startCommand:
-  type: http
+# SSE transport
+transport: sse
