@@ -1,10 +1,3 @@
-name: filesystem-mcp-server
-version: 1.0.0
-description: MCP server for file system operations
-author: Sujal Mane
 
-# Use Python runtime (not container)
 runtime: python
 
-# SSE transport
-transport: sse
