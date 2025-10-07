@@ -2,8 +2,9 @@ from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.types import Tool, TextContent
 from starlette.applications import Starlette
-from starlette.routing import Route, Mount
+from starlette.routing import Route
 from starlette.responses import Response
+from starlette.middleware.cors import CORSMiddleware
 import uvicorn
 import os
 import json
@@ -130,60 +131,20 @@ async def handle_call_tool(name: str, arguments: dict):
     except Exception as e:
         return [TextContent(type="text", text=f"Error: {str(e)}")]
 
+# Create SSE transport
+sse_transport = SseServerTransport("/messages")
+
 # Health check endpoint
 async def health(request):
     return Response(
         content='{"status": "healthy", "server": "filesystem-mcp-server"}',
-        media_type="application/json",
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "*"
-        }
+        media_type="application/json"
     )
 
-# Handle CORS preflight
-async def handle_options(request):
-    return Response(
-        status_code=200,
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "*"
-        }
-    )
+# Create base Starlette app (without routes first)
+app = Starlette(debug=True)
 
-# Create Starlette app with SSE transport
-sse = SseServerTransport("/messages")
-
-async def handle_sse(request):
-    async with sse.connect_sse(
-        request.scope,
-        request.receive,
-        request._send
-    ) as streams:
-        await mcp_server.run(
-            streams[0],
-            streams[1],
-            mcp_server.create_initialization_options()
-        )
-
-async def handle_messages(request):
-    await sse.handle_post_message(request.scope, request.receive, request._send)
-
-# Create app with CORS enabled
-app = Starlette(
-    routes=[
-        Route("/sse", endpoint=handle_sse, methods=["GET"]),
-        Route("/messages", endpoint=handle_messages, methods=["POST"]),
-        Route("/health", endpoint=health, methods=["GET"]),
-        Route("/{path:path}", endpoint=handle_options, methods=["OPTIONS"]),
-    ]
-)
-
-# Add CORS middleware
-from starlette.middleware.cors import CORSMiddleware
-
+# Add CORS middleware FIRST
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -191,6 +152,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount the SSE transport which handles /sse and /messages
+app.mount("/", sse_transport.get_asgi_app(mcp_server))
+
+# Add health check route
+app.add_route("/health", health, methods=["GET"])
 
 # Run server
 if __name__ == "__main__":
