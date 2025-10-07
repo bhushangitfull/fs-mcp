@@ -2,19 +2,17 @@ from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.types import Tool, TextContent
 from starlette.applications import Starlette
-from starlette.routing import Route
+from starlette.routing import Route, Mount
 from starlette.responses import Response
-from sse_starlette import EventSourceResponse
 import uvicorn
 import os
 import json
-import asyncio
 
 # Create MCP server
-server = Server("filesystem-mcp-server")
+mcp_server = Server("filesystem-mcp-server")
 
 # List available tools
-@server.list_tools()
+@mcp_server.list_tools()
 async def handle_list_tools():
     return [
         Tool(
@@ -94,7 +92,7 @@ async def handle_list_tools():
     ]
 
 # Handle tool calls
-@server.call_tool()
+@mcp_server.call_tool()
 async def handle_call_tool(name: str, arguments: dict):
     try:
         if name == "read_file":
@@ -132,43 +130,66 @@ async def handle_call_tool(name: str, arguments: dict):
     except Exception as e:
         return [TextContent(type="text", text=f"Error: {str(e)}")]
 
-# SSE endpoint handler
-async def handle_sse(request):
-    transport = SseServerTransport("/messages")
-    
-    async def run_server():
-        async with transport.connect_sse(
-            request.scope,
-            request.receive,
-            request._send
-        ) as streams:
-            await server.run(
-                streams[0],
-                streams[1],
-                server.create_initialization_options()
-            )
-    
-    return EventSourceResponse(
-        run_server(),
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        }
-    )
-
 # Health check endpoint
 async def health(request):
     return Response(
         content='{"status": "healthy", "server": "filesystem-mcp-server"}',
-        media_type="application/json"
+        media_type="application/json",
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*"
+        }
     )
 
-# Create Starlette app
+# Handle CORS preflight
+async def handle_options(request):
+    return Response(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*"
+        }
+    )
+
+# Create Starlette app with SSE transport
+sse = SseServerTransport("/messages")
+
+async def handle_sse(request):
+    async with sse.connect_sse(
+        request.scope,
+        request.receive,
+        request._send
+    ) as streams:
+        await mcp_server.run(
+            streams[0],
+            streams[1],
+            mcp_server.create_initialization_options()
+        )
+
+async def handle_messages(request):
+    await sse.handle_post_message(request.scope, request.receive, request._send)
+
+# Create app with CORS enabled
 app = Starlette(
     routes=[
-        Route("/sse", endpoint=handle_sse),
-        Route("/health", endpoint=health),
+        Route("/sse", endpoint=handle_sse, methods=["GET"]),
+        Route("/messages", endpoint=handle_messages, methods=["POST"]),
+        Route("/health", endpoint=health, methods=["GET"]),
+        Route("/{path:path}", endpoint=handle_options, methods=["OPTIONS"]),
     ]
+)
+
+# Add CORS middleware
+from starlette.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Run server
@@ -178,6 +199,7 @@ if __name__ == "__main__":
     
     print(f"Starting MCP File System Server on {host}:{port}")
     print(f"SSE endpoint: http://{host}:{port}/sse")
+    print(f"Messages endpoint: http://{host}:{port}/messages")
     print(f"Health check: http://{host}:{port}/health")
     
     uvicorn.run(
