@@ -1,10 +1,11 @@
-name: filesystem-mcp-server
-version: 1.0.0
-description: MCP server for file system operations
-author: Sujal Mane
-
-# Specify Docker runtime
-runtime: container
-
-# Server will be accessible via HTTP/SSE
-transport: sse
+runtime: "container"
+build:
+  dockerfile: "Dockerfile"
+  dockerBuildPath: "."
+startCommand: ""
+type: "http"
+configSchema:
+  type: "object"
+  properties: {}
+  required: []
+exampleConfig: {}
