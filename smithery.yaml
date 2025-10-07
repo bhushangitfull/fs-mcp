@@ -3,10 +3,8 @@ version: 1.0.0
 description: MCP server for file system operations
 author: Sujal Mane
 
-runtime: "python"
+# Specify Docker runtime
+runtime: docker
 
+# Server will be accessible via HTTP/SSE
 transport: sse
-
-startCommand:
-  type: http
-  url: http://localhost:8000/sse
